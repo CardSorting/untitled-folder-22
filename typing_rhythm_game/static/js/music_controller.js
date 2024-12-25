@@ -1,40 +1,12 @@
 class MusicController {
     constructor() {
-        this.audio = null;
+        this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        this.audioElement = null;
         this.currentLevel = null;
         this.isPlaying = false;
-        this.timingPoints = [];
-        this.beatCallback = null;
-        this.nextBeatTime = 0;
-        this.rhythmWorker = null;
-        this.initRhythmWorker();
-    }
-
-    initRhythmWorker() {
-        // Create a worker for precise timing
-        const workerBlob = new Blob([`
-            let intervalId = null;
-            
-            self.onmessage = function(e) {
-                if (e.data.command === 'start') {
-                    intervalId = setInterval(() => {
-                        self.postMessage({ type: 'beat' });
-                    }, e.data.interval);
-                } else if (e.data.command === 'stop') {
-                    if (intervalId) {
-                        clearInterval(intervalId);
-                        intervalId = null;
-                    }
-                }
-            };
-        `], { type: 'application/javascript' });
-
-        this.rhythmWorker = new Worker(URL.createObjectURL(workerBlob));
-        this.rhythmWorker.onmessage = (e) => {
-            if (e.data.type === 'beat') {
-                this.onBeat();
-            }
-        };
+        this.startTime = 0;
+        this.rhythmPattern = [];
+        this.bpm = 120;
     }
 
     async startMusic(level) {
@@ -42,189 +14,105 @@ class MusicController {
             // Stop any existing music
             await this.stopMusic();
 
-            // Start new music
-            const response = await fetch(`/api/v1/music/start/${level}`, {
+            // Get track information
+            const response = await fetch(`/music/start/${level}`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 }
             });
 
-            const result = await response.json();
-            if (!result.success) {
-                throw new Error(result.error || 'Failed to start music');
+            if (!response.ok) {
+                throw new Error('Failed to get track information');
             }
 
-            // Create and configure audio
-            this.audio = new Audio(`/api/v1/music/stream/${level}`);
-            this.audio.addEventListener('canplaythrough', () => {
-                this.audio.play();
-                this.isPlaying = true;
-                this.currentLevel = level;
+            const data = await response.json();
+            if (!data.success) {
+                throw new Error(data.error || 'Failed to start music');
+            }
 
-                // Start rhythm tracking
-                const bpm = result.rhythm.bpm;
-                const beatInterval = (60 / bpm) * 1000; // Convert to milliseconds
-                this.rhythmWorker.postMessage({
-                    command: 'start',
-                    interval: beatInterval
-                });
+            // Create new audio element
+            this.audioElement = new Audio(`/music/stream/${level}`);
+            this.audioElement.crossOrigin = 'anonymous';
 
-                // Dispatch event
-                window.dispatchEvent(new CustomEvent('musicStarted', {
-                    detail: { level, bpm }
-                }));
-            });
+            // Connect to audio context for precise timing
+            const source = this.audioContext.createMediaElementSource(this.audioElement);
+            source.connect(this.audioContext.destination);
 
-            this.audio.addEventListener('error', (e) => {
-                console.error('Audio error:', e);
-                this.handleMusicError('Audio playback error');
-            });
+            // Set up rhythm information
+            this.bpm = data.rhythm.bpm;
+            this.rhythmPattern = data.rhythm.pattern;
+            this.currentLevel = level;
 
-            return result;
+            // Start playback
+            this.startTime = this.audioContext.currentTime;
+            await this.audioElement.play();
+            this.isPlaying = true;
+
+            return true;
         } catch (error) {
-            this.handleMusicError(error);
-            throw error;
+            console.error('Error starting music:', error);
+            return false;
         }
     }
 
     async stopMusic() {
-        if (this.audio) {
-            this.audio.pause();
-            this.audio.currentTime = 0;
-            this.audio = null;
+        if (this.audioElement) {
+            this.audioElement.pause();
+            this.audioElement.currentTime = 0;
+            this.audioElement = null;
         }
-
         this.isPlaying = false;
-        this.currentLevel = null;
-        this.timingPoints = [];
-        this.rhythmWorker.postMessage({ command: 'stop' });
-
-        try {
-            await fetch('/api/v1/music/stop', {
-                method: 'POST'
-            });
-        } catch (error) {
-            console.error('Error stopping music:', error);
-        }
-
-        // Dispatch event
-        window.dispatchEvent(new CustomEvent('musicStopped'));
     }
 
-    async syncWord(word) {
-        try {
-            const response = await fetch('/api/v1/music/sync', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ word })
-            });
+    getCurrentBeat() {
+        if (!this.isPlaying) return null;
 
-            const result = await response.json();
-            if (!result.success) {
-                throw new Error(result.error || 'Failed to sync word');
-            }
+        const currentTime = this.audioContext.currentTime - this.startTime;
+        const beatsPerSecond = this.bpm / 60;
+        const currentBeat = Math.floor(currentTime * beatsPerSecond);
 
-            this.timingPoints = result.timing_points;
-            return this.timingPoints;
-        } catch (error) {
-            console.error('Error syncing word:', error);
-            return Array(word.length).fill(0); // Fallback timing
-        }
-    }
-
-    async getCurrentTiming() {
-        try {
-            const response = await fetch('/api/v1/music/timing');
-            const result = await response.json();
-            
-            if (result.error) {
-                throw new Error(result.error);
-            }
-
-            this.nextBeatTime = result.next_beat;
-            return result;
-        } catch (error) {
-            console.error('Error getting timing:', error);
-            return null;
-        }
-    }
-
-    onBeat() {
-        if (this.beatCallback) {
-            this.beatCallback();
-        }
-
-        // Dispatch beat event
-        window.dispatchEvent(new CustomEvent('musicBeat', {
-            detail: {
-                time: performance.now(),
-                level: this.currentLevel
-            }
-        }));
-    }
-
-    setBeatCallback(callback) {
-        this.beatCallback = callback;
-    }
-
-    handleMusicError(error) {
-        console.error('Music error:', error);
-        this.stopMusic();
-        
-        // Dispatch error event
-        window.dispatchEvent(new CustomEvent('musicError', {
-            detail: { error: error.toString() }
-        }));
-    }
-
-    // Visual effects methods
-    createVisualizer(canvas) {
-        if (!this.audio) return;
-
-        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        const source = audioContext.createMediaElementSource(this.audio);
-        const analyzer = audioContext.createAnalyser();
-
-        source.connect(analyzer);
-        analyzer.connect(audioContext.destination);
-
-        analyzer.fftSize = 256;
-        const bufferLength = analyzer.frequencyBinCount;
-        const dataArray = new Uint8Array(bufferLength);
-
-        const ctx = canvas.getContext('2d');
-        const draw = () => {
-            const WIDTH = canvas.width;
-            const HEIGHT = canvas.height;
-
-            requestAnimationFrame(draw);
-
-            analyzer.getByteFrequencyData(dataArray);
-
-            ctx.fillStyle = 'rgb(0, 0, 0)';
-            ctx.fillRect(0, 0, WIDTH, HEIGHT);
-
-            const barWidth = (WIDTH / bufferLength) * 2.5;
-            let barHeight;
-            let x = 0;
-
-            for (let i = 0; i < bufferLength; i++) {
-                barHeight = dataArray[i] / 2;
-
-                const r = barHeight + (25 * (i / bufferLength));
-                const g = 250 * (i / bufferLength);
-                const b = 50;
-
-                ctx.fillStyle = `rgb(${r},${g},${b})`;
-                ctx.fillRect(x, HEIGHT - barHeight, barWidth, barHeight);
-
-                x += barWidth + 1;
-            }
+        return {
+            beat: currentBeat,
+            pattern: this.rhythmPattern[currentBeat % this.rhythmPattern.length]
         };
+    }
 
-        draw();
+    getNextBeatTime() {
+        if (!this.isPlaying) return null;
+
+        const currentTime = this.audioContext.currentTime - this.startTime;
+        const beatsPerSecond = this.bpm / 60;
+        const currentBeat = currentTime * beatsPerSecond;
+        const nextBeat = Math.ceil(currentBeat);
+
+        return {
+            beat: nextBeat,
+            time: (nextBeat / beatsPerSecond) + this.startTime
+        };
+    }
+
+    syncWord(word) {
+        if (!this.isPlaying) return null;
+
+        const nextBeat = this.getNextBeatTime();
+        if (!nextBeat) return null;
+
+        const letterTimings = [];
+        const beatDuration = 60 / this.bpm;
+        let currentBeat = nextBeat.beat;
+
+        for (let i = 0; i < word.length; i++) {
+            while (!this.rhythmPattern[currentBeat % this.rhythmPattern.length]) {
+                currentBeat++;
+            }
+            letterTimings.push({
+                letter: word[i],
+                time: (currentBeat * beatDuration) + this.startTime
+            });
+            currentBeat++;
+        }
+
+        return letterTimings;
     }
 }

@@ -22,22 +22,16 @@ class Config:
     
     # Music configuration
     MUSIC_CONFIG = {
-        'storage': {
-            'type': 'b2',  # backblaze b2
-            'bucket': os.environ.get('B2_BUCKET_NAME'),
-            'app_key_id': os.environ.get('B2_APP_KEY_ID'),
-            'app_key': os.environ.get('B2_APP_KEY')
-        },
         'levels': {
             1: {
                 'name': 'Pixelated Heartbeat',
-                'url': 'music/level1/pixelated_heartbeat.mp3',
+                'url': 'https://f005.backblazeb2.com/file/typing-rhythm-game/pixelated_heartbeat.mp3',
                 'bpm': 120,
                 'rhythm_pattern': [1, 0, 1, 0]  # 1 = beat, 0 = rest
             },
             2: {
                 'name': 'Digital Dreams',
-                'url': 'music/level2/digital_dreams.mp3',
+                'url': 'https://f005.backblazeb2.com/file/typing-rhythm-game/digital_dreams.mp3',
                 'bpm': 140,
                 'rhythm_pattern': [1, 0, 1, 1]
             }

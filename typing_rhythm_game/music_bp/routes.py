@@ -1,107 +1,124 @@
-from flask import jsonify, request, current_app, Response, stream_with_context
-from flask_login import login_required, current_user
-from . import music_bp
-from ..game.music_management import MusicManager, MusicProvider
-from ..utils.exceptions import GameDataError
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
+from flask import Blueprint, jsonify, current_app, stream_with_context, Response
+from flask_login import login_required
 import requests
 import logging
+from ..game.music_management import MusicProvider
 
+music_bp = Blueprint('music', __name__)
 logger = logging.getLogger(__name__)
-music_manager = MusicManager()
 music_provider = MusicProvider()
-
-limiter = Limiter(
-    key_func=get_remote_address,
-    storage_uri="memory://"
-)
 
 @music_bp.route('/start/<int:level>', methods=['POST'])
 @login_required
-@limiter.limit("30 per minute")
-def start_music(level: int):
-    """Start music for a specific level."""
+def start_music(level):
+    """Start music for a level."""
     try:
-        if not 1 <= level <= 5:
-            return jsonify({'error': 'Invalid level'}), 400
+        track_info = music_provider.get_track_url(level)
+        if not track_info or not track_info['success']:
+            return jsonify({
+                'success': False,
+                'error': 'Failed to get track information'
+            }), 404
             
-        result = music_manager.start_level_music(level)
-        if not result['success']:
-            return jsonify({'error': result['error']}), 500
-            
-        return jsonify(result)
+        return jsonify({
+            'success': True,
+            'name': track_info['name'],
+            'rhythm': track_info['rhythm']
+        })
+        
     except Exception as e:
-        logger.error(f"Error starting music: {str(e)}")
-        return jsonify({'error': 'Failed to start music'}), 500
+        logger.error(f"Error starting music for level {level}: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': 'Internal server error'
+        }), 500
+
+@music_bp.route('/stream/<int:level>')
+@login_required
+def stream_music(level):
+    """Stream music directly from storage."""
+    try:
+        track_info = music_provider.get_track_url(level)
+        if not track_info or not track_info['success']:
+            return jsonify({
+                'success': False,
+                'error': 'Track not found'
+            }), 404
+
+        def generate():
+            # Stream in chunks to avoid memory issues
+            response = requests.get(track_info['url'], stream=True)
+            if response.status_code != 200:
+                logger.error(f"Failed to get track from storage: {response.status_code}")
+                return
+                
+            for chunk in response.iter_content(chunk_size=4096):
+                yield chunk
+
+        return Response(
+            stream_with_context(generate()),
+            content_type='audio/mpeg',
+            headers={
+                'Accept-Ranges': 'bytes',
+                'Cache-Control': 'no-cache',
+                'X-Accel-Buffering': 'no'
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Error streaming music for level {level}: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': 'Failed to stream music'
+        }), 500
 
 @music_bp.route('/stop', methods=['POST'])
 @login_required
 def stop_music():
-    """Stop the current music playback."""
-    try:
-        music_manager.stop_music()
-        return jsonify({'success': True})
-    except Exception as e:
-        logger.error(f"Error stopping music: {str(e)}")
-        return jsonify({'error': 'Failed to stop music'}), 500
-
-@music_bp.route('/stream/<int:level>')
-def stream_music(level: int):
-    """Stream music for a specific level."""
-    try:
-        if not 1 <= level <= 5:
-            return jsonify({'error': 'Invalid level'}), 400
-            
-        url = music_provider.get_stream_url(level)
-        if not url:
-            return jsonify({'error': 'Music not found'}), 404
-            
-        # Stream the music from the B2 bucket
-        def generate():
-            response = requests.get(url, stream=True)
-            for chunk in response.iter_content(chunk_size=4096):
-                yield chunk
-                
-        return Response(
-            stream_with_context(generate()),
-            content_type='audio/wav'
-        )
-    except Exception as e:
-        logger.error(f"Error streaming music: {str(e)}")
-        return jsonify({'error': 'Failed to stream music'}), 500
+    """Stop currently playing music."""
+    return jsonify({'success': True})
 
 @music_bp.route('/timing')
 @login_required
 def get_timing():
     """Get current music timing information."""
     try:
-        timing = music_manager.get_next_beat_timing()
-        if not timing:
-            return jsonify({'error': 'No active music'}), 404
-            
-        return jsonify(timing)
+        return jsonify({
+            'success': True,
+            'timestamp': current_app.music_state.get_current_time(),
+            'next_beat': current_app.music_state.get_next_beat()
+        })
     except Exception as e:
         logger.error(f"Error getting timing: {str(e)}")
-        return jsonify({'error': 'Failed to get timing'}), 500
+        return jsonify({
+            'success': False,
+            'error': 'Failed to get timing'
+        }), 500
 
 @music_bp.route('/sync', methods=['POST'])
 @login_required
 def sync_word():
-    """Get timing points for a word based on current rhythm."""
+    """Get timing points for a word."""
     try:
-        data = request.get_json()
-        if not data or 'word' not in data:
-            return jsonify({'error': 'No word provided'}), 400
+        word = request.json.get('word')
+        if not word:
+            return jsonify({
+                'success': False,
+                'error': 'No word provided'
+            }), 400
             
-        timing_points = music_manager.sync_with_word(data['word'])
+        timing_points = current_app.music_state.get_timing_points(word)
         return jsonify({
             'success': True,
             'timing_points': timing_points
         })
+        
     except Exception as e:
         logger.error(f"Error syncing word: {str(e)}")
-        return jsonify({'error': 'Failed to sync word'}), 500
+        return jsonify({
+            'success': False,
+            'error': 'Failed to sync word'
+        }), 500
 
 @music_bp.route('/state')
 @login_required
