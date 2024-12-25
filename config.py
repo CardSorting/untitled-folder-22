@@ -25,13 +25,13 @@ class Config:
         'levels': {
             1: {
                 'name': 'Pixelated Heartbeat',
-                'url': 'https://f005.backblazeb2.com/file/typing-rhythm-game/pixelated_heartbeat.mp3',
+                'url': 'https://f005.backblazeb2.com/file/typegamer/Pixelated+Heartbeat.wav',
                 'bpm': 120,
                 'rhythm_pattern': [1, 0, 1, 0]  # 1 = beat, 0 = rest
             },
             2: {
                 'name': 'Digital Dreams',
-                'url': 'https://f005.backblazeb2.com/file/typing-rhythm-game/digital_dreams.mp3',
+                'url': 'https://f005.backblazeb2.com/file/typegamer/Pixelated+Heartbeat.wav',
                 'bpm': 140,
                 'rhythm_pattern': [1, 0, 1, 1]
             }

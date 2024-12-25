@@ -1,157 +1,131 @@
-from typing import Dict, Optional, List
-import threading
-import time
+from flask import current_app
 import logging
 from .music_provider import MusicProvider
 
 logger = logging.getLogger(__name__)
 
 class MusicManager:
-    """
-    Manages music playback and synchronization with game rhythm.
-    Implements the Singleton pattern for consistent music state management.
-    """
+    """Manages music playback and synchronization for the game."""
+    
     _instance = None
-    _lock = threading.Lock()
     
     def __new__(cls):
         if cls._instance is None:
-            with cls._lock:
-                if cls._instance is None:
-                    cls._instance = super(MusicManager, cls).__new__(cls)
-                    cls._instance._initialized = False
+            cls._instance = super(MusicManager, cls).__new__(cls)
+            cls._instance._initialized = False
         return cls._instance
     
     def __init__(self):
         if self._initialized:
             return
             
-        self._provider = MusicProvider()
+        self._music_provider = MusicProvider()
         self._current_level = None
-        self._current_pattern = None
-        self._pattern_position = 0
-        self._last_beat_time = 0
-        self._is_playing = False
+        self._start_time = None
         self._initialized = True
+        logger.info("MusicManager initialized")
     
-    def start_level_music(self, level: int) -> Dict:
+    def start_level_music(self, level):
         """
-        Start playing music for a specific level and return timing information.
+        Start music for a specific level.
         
         Args:
-            level: Game difficulty level (1-5)
+            level (int): The level to start music for
             
         Returns:
-            Dictionary containing music timing information
+            dict: Result of the operation
         """
         try:
-            # Get music information
-            music_info = self._provider.get_music_info(level)
-            if not music_info:
-                raise ValueError(f"No music configuration found for level {level}")
+            track_info = self._music_provider.get_track_url(level)
+            if not track_info or not track_info['success']:
+                return {
+                    'success': False,
+                    'error': 'Failed to get track information'
+                }
             
-            # Verify music availability
-            if not self._provider.verify_music_availability(level):
-                raise ValueError(f"Music for level {level} is not available")
-            
-            # Update current state
             self._current_level = level
-            self._current_pattern = self._provider.get_rhythm_pattern(level)
-            self._pattern_position = 0
-            self._last_beat_time = time.time()
-            self._is_playing = True
+            self._start_time = current_app.music_state.get_current_time()
             
             return {
                 'success': True,
-                'music_url': music_info['url'],
-                'name': music_info['name'],
-                'rhythm': self._current_pattern,
-                'start_time': self._last_beat_time
+                'track_info': track_info
             }
             
         except Exception as e:
-            logger.error(f"Error starting music for level {level}: {str(e)}")
+            logger.error(f"Error starting level music: {str(e)}")
             return {
                 'success': False,
-                'error': str(e)
+                'error': 'Failed to start music'
             }
     
-    def stop_music(self) -> None:
+    def stop_music(self):
         """Stop the current music playback."""
-        self._is_playing = False
         self._current_level = None
-        self._current_pattern = None
-        self._pattern_position = 0
+        self._start_time = None
     
-    def get_next_beat_timing(self) -> Optional[Dict]:
+    def get_next_beat_timing(self):
         """
-        Get timing information for the next beat in the pattern.
+        Get timing information for the next beat.
         
         Returns:
-            Dictionary containing next beat timing or None if not playing
+            dict: Timing information or None if no music is playing
         """
-        if not self._is_playing or not self._current_pattern:
+        if not self._current_level or not self._start_time:
             return None
             
-        current_time = time.time()
-        bpm = self._current_pattern['bpm']
-        beat_duration = 60.0 / bpm
+        rhythm_info = self._music_provider.get_rhythm_info(self._current_level)
+        if not rhythm_info:
+            return None
+            
+        current_time = current_app.music_state.get_current_time()
+        elapsed_time = current_time - self._start_time
         
-        # Calculate time until next beat
-        beats_elapsed = (current_time - self._last_beat_time) / beat_duration
-        next_beat_time = self._last_beat_time + (math.ceil(beats_elapsed) * beat_duration)
+        # Calculate next beat based on BPM
+        beat_duration = 60 / rhythm_info['bpm']
+        current_beat = elapsed_time / beat_duration
+        next_beat = int(current_beat) + 1
         
         return {
-            'next_beat': next_beat_time,
-            'pattern_position': self._pattern_position,
-            'beat_duration': beat_duration
+            'next_beat': next_beat,
+            'time': self._start_time + (next_beat * beat_duration),
+            'pattern': rhythm_info['pattern'][next_beat % len(rhythm_info['pattern'])]
         }
     
-    def update_pattern_position(self) -> None:
-        """Update the current position in the rhythm pattern."""
-        if self._is_playing and self._current_pattern:
-            self._pattern_position = (self._pattern_position + 1) % self._current_pattern['pattern_length']
-            self._last_beat_time = time.time()
-    
-    def get_current_state(self) -> Dict:
+    def sync_with_word(self, word):
         """
-        Get the current music state.
-        
-        Returns:
-            Dictionary containing current music state information
-        """
-        return {
-            'is_playing': self._is_playing,
-            'current_level': self._current_level,
-            'pattern': self._current_pattern,
-            'position': self._pattern_position,
-            'last_beat_time': self._last_beat_time
-        }
-    
-    def sync_with_word(self, word: str) -> List[float]:
-        """
-        Generate timing points for a word based on the current rhythm pattern.
+        Synchronize a word with the current rhythm.
         
         Args:
-            word: Word to synchronize with the rhythm
+            word (str): The word to synchronize
             
         Returns:
-            List of timing points for each character in the word
+            list: Timing points for each letter
         """
-        if not self._is_playing or not self._current_pattern:
-            return [0.0] * len(word)
+        if not self._current_level or not self._start_time:
+            return None
             
-        bpm = self._current_pattern['bpm']
-        beat_duration = 60.0 / bpm
-        beat_division = self._current_pattern['beat_division']
-        subdivision_duration = beat_duration / beat_division
-        
-        # Create timing points for each character
+        rhythm_info = self._music_provider.get_rhythm_info(self._current_level)
+        if not rhythm_info:
+            return None
+            
+        next_beat = self.get_next_beat_timing()
+        if not next_beat:
+            return None
+            
         timing_points = []
-        for i, char in enumerate(word):
-            # Calculate timing based on character position and pattern
-            position_in_pattern = (self._pattern_position + i) % self._current_pattern['pattern_length']
-            timing = self._last_beat_time + (position_in_pattern * subdivision_duration)
-            timing_points.append(timing)
+        current_beat = next_beat['next_beat']
+        beat_duration = 60 / rhythm_info['bpm']
+        pattern = rhythm_info['pattern']
+        
+        for letter in word:
+            # Find next beat that aligns with the rhythm pattern
+            while not pattern[current_beat % len(pattern)]:
+                current_beat += 1
+            
+            timing_points.append({
+                'letter': letter,
+                'time': self._start_time + (current_beat * beat_duration)
+            })
+            current_beat += 1
         
         return timing_points
