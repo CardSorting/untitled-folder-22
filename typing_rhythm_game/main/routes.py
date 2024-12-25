@@ -3,12 +3,14 @@ from . import main_bp
 from flask_login import login_required, current_user
 from ..models import Score, GameStats, db, User
 from ..services.game_service import GameService
+from ..game.word_management import WordProvider
 from ..utils.exceptions import GameDataError
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 import logging
 
 logger = logging.getLogger(__name__)
+word_provider = WordProvider()
 
 limiter = Limiter(
     key_func=get_remote_address,
@@ -39,11 +41,20 @@ def home():
 def game():
     """Game page route that starts a new game session."""
     try:
-        game_session = GameService.start_game_session(current_user.id)
+        # Get user's current level
+        user_stats = GameService.get_user_stats(current_user.id)
+        user_level = user_stats.get('current_level', 1)
+        
+        # Start game session with appropriate word challenge
+        game_session = GameService.start_game_session(
+            current_user.id,
+            word_provider.get_word(user_level)
+        )
+        
         logger.info(f"Started new game session for user {current_user.id}")
         return render_template('game.html', 
-                             challenge=game_session['challenge'],
-                             power_ups=game_session['power_ups_available'])
+                             session=game_session,
+                             user_stats=user_stats)
     except GameDataError as e:
         logger.error(f"Error starting game: {str(e)}")
         return redirect(url_for('main.home'))
@@ -54,7 +65,22 @@ def game():
 def get_challenge():
     """Get the next word challenge with rhythm patterns."""
     try:
-        challenge = GameService.get_next_challenge(current_user.id)
+        # Get user's current level and preferences
+        user_stats = GameService.get_user_stats(current_user.id)
+        user_level = user_stats.get('current_level', 1)
+        variance = current_app.config['WORD_CONFIG']['default_variance']
+        
+        # Get appropriate word challenge
+        word = word_provider.get_word(user_level, variance)
+        difficulty = word_provider.get_difficulty(word)
+        
+        # Create challenge with word info
+        challenge = GameService.create_challenge(
+            word=word,
+            difficulty=difficulty.get_level(),
+            user_stats=user_stats
+        )
+        
         return jsonify(challenge)
     except GameDataError as e:
         logger.error(f"Error generating challenge: {str(e)}")
@@ -73,20 +99,22 @@ def submit_score():
         if not data:
             return jsonify({'error': 'No data provided'}), 400
             
+        # Process submission
         result = GameService.submit_score(current_user.id, data)
-        return jsonify({
-            'success': True,
-            'score': result['score'],
-            'accuracy': result['accuracy'],
-            'combo_count': result['combo_count'],
-            'total_score': result['total_score'],
-            'words_completed': result['words_completed'],
-            'avg_accuracy': result['avg_accuracy'],
-            'active_power_ups': result['active_power_ups'],
-            'next_challenge': result['next_challenge'],
-            'new_level': result['new_level'],
-            'high_score': result['high_score']
-        })
+        
+        # Get next challenge if game continues
+        if result.get('game_continues', True):
+            next_word = word_provider.get_word(
+                result['next_level'],
+                current_app.config['WORD_CONFIG']['default_variance']
+            )
+            result['next_challenge'] = GameService.create_challenge(
+                word=next_word,
+                difficulty=word_provider.get_difficulty(next_word).get_level(),
+                user_stats=result['user_stats']
+            )
+        
+        return jsonify(result)
     except GameDataError as e:
         return jsonify({'error': str(e)}), 400
     except Exception as e:
