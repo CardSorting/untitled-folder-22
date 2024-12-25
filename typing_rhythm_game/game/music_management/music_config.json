@@ -1,0 +1,47 @@
+{
+  "1": {
+    "url": "https://f005.backblazeb2.com/file/typegamer/Pixelated+Heartbeat.wav",
+    "name": "Pixelated Heartbeat",
+    "bpm": 120,
+    "difficulty_sync": {
+      "beat_division": 4,
+      "pattern_length": 8
+    }
+  },
+  "2": {
+    "url": "https://f005.backblazeb2.com/file/typegamer/level2_music.wav",
+    "name": "Level 2 Music",
+    "bpm": 140,
+    "difficulty_sync": {
+      "beat_division": 4,
+      "pattern_length": 8
+    }
+  },
+  "3": {
+    "url": "https://f005.backblazeb2.com/file/typegamer/level3_music.wav",
+    "name": "Level 3 Music",
+    "bpm": 160,
+    "difficulty_sync": {
+      "beat_division": 4,
+      "pattern_length": 16
+    }
+  },
+  "4": {
+    "url": "https://f005.backblazeb2.com/file/typegamer/level4_music.wav",
+    "name": "Level 4 Music",
+    "bpm": 180,
+    "difficulty_sync": {
+      "beat_division": 8,
+      "pattern_length": 16
+    }
+  },
+  "5": {
+    "url": "https://f005.backblazeb2.com/file/typegamer/level5_music.wav",
+    "name": "Level 5 Music",
+    "bpm": 200,
+    "difficulty_sync": {
+      "beat_division": 8,
+      "pattern_length": 32
+    }
+  }
+}
