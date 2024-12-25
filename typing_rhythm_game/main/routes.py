@@ -4,6 +4,7 @@ from flask_login import login_required, current_user
 from ..models import Score, GameStats, db, User
 from ..services.game_service import GameService
 from ..game.word_management import WordProvider
+from ..game.music_management import MusicManager
 from ..utils.exceptions import GameDataError
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -11,6 +12,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 word_provider = WordProvider()
+music_manager = MusicManager()
 
 limiter = Limiter(
     key_func=get_remote_address,
@@ -51,10 +53,16 @@ def game():
             word_provider.get_word(user_level)
         )
         
+        # Start music for the level
+        music_result = music_manager.start_level_music(user_level)
+        if not music_result['success']:
+            logger.warning(f"Failed to start music: {music_result.get('error')}")
+        
         logger.info(f"Started new game session for user {current_user.id}")
         return render_template('game.html', 
                              session=game_session,
-                             user_stats=user_stats)
+                             user_stats=user_stats,
+                             music_info=music_result if music_result.get('success') else None)
     except GameDataError as e:
         logger.error(f"Error starting game: {str(e)}")
         return redirect(url_for('main.home'))
@@ -74,11 +82,15 @@ def get_challenge():
         word = word_provider.get_word(user_level, variance)
         difficulty = word_provider.get_difficulty(word)
         
-        # Create challenge with word info
+        # Get rhythm timing for the word
+        timing_points = music_manager.sync_with_word(word)
+        
+        # Create challenge with word info and timing
         challenge = GameService.create_challenge(
             word=word,
             difficulty=difficulty.get_level(),
-            user_stats=user_stats
+            user_stats=user_stats,
+            timing_points=timing_points
         )
         
         return jsonify(challenge)

@@ -1,135 +1,83 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Game</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="bg-gray-100">
-    <nav class="bg-blue-500 p-4">
-        <div class="container mx-auto flex justify-between items-center">
-            <a href="/" class="text-white font-bold text-xl">Typing Rhythm Game</a>
-            <div class="space-x-4">
-                <a href="{{ url_for('main.game') }}" class="text-white hover:text-blue-200">Game</a>
-                <a href="{{ url_for('auth.logout') }}" class="text-white hover:text-blue-200">Logout</a>
-            </div>
-        </div>
-    </nav>
-    <div class="container mx-auto p-4">
-        <h1 class="text-2xl font-bold mb-4">Game</h1>
-        <div id="game-container" class="bg-white p-4 rounded shadow-md">
-            <div id="word-display" class="text-2xl text-center mb-4"></div>
-            <input type="text" id="user-input" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" placeholder="Type here">
-            <div class="flex justify-between mt-2">
-                <div id="score-display" class="text-lg">Score: 0</div>
-                <div id="timer-display" class="text-lg">Time: 0.000</div>
-            </div>
-            <div id="accuracy-display" class="text-lg text-right mt-2">Accuracy: 0%</div>
-            <div id="rhythm-bar" class="bg-blue-500 h-2 mt-2"></div>
+{% extends "base.html" %}
+
+{% block title %}Typing Rhythm Game{% endblock %}
+
+{% block styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/game.css') }}">
+{% endblock %}
+
+{% block content %}
+<nav class="bg-blue-500 p-4">
+    <div class="container mx-auto flex justify-between items-center">
+        <a href="/" class="text-white font-bold text-xl">Typing Rhythm Game</a>
+        <div class="space-x-4">
+            <a href="{{ url_for('main.game') }}" class="text-white hover:text-blue-200">Game</a>
+            <a href="{{ url_for('auth.logout') }}" class="text-white hover:text-blue-200">Logout</a>
         </div>
     </div>
-    <script>
-        const words = ["hello", "world", "typing", "rhythm", "game", "flask", "python", "javascript"];
-        let currentWordIndex = 0;
-        let score = 0;
-        let startTime = 0;
-        let elapsedTime = 0;
-        let timerInterval;
-        let wordsTyped = 0;
-        let correctChars = 0;
-        let totalChars = 0;
+</nav>
+<div class="container mx-auto p-4">
+    <div class="game-container" id="gameContainer" 
+        {% if music_info %}
+        data-music-info='{{ music_info|tojson|safe }}'
+        {% endif %}>
+        <!-- Error Display -->
+        <div id="errorDisplay"></div>
 
-        const wordDisplay = document.getElementById('word-display');
-        const userInput = document.getElementById('user-input');
-        const scoreDisplay = document.getElementById('score-display');
-        const timerDisplay = document.getElementById('timer-display');
-        const accuracyDisplay = document.getElementById('accuracy-display');
-        const rhythmBar = document.getElementById('rhythm-bar');
+        <!-- Stats Display -->
+        <div class="stats-container">
+            <div class="stat-box">
+                <div class="stat-label">Score</div>
+                <div class="stat-value" id="scoreDisplay">0</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-label">Combo</div>
+                <div class="stat-value" id="comboDisplay">0</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-label">Accuracy</div>
+                <div class="stat-value" id="accuracyDisplay">100%</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-label">Level</div>
+                <div class="stat-value" id="levelDisplay">{{ user_stats.current_level }}</div>
+            </div>
+        </div>
 
-        function displayWord() {
-            wordDisplay.textContent = words[currentWordIndex];
-        }
+        <!-- Music Visualizer -->
+        <canvas id="musicVisualizer"></canvas>
 
-        function startTimer() {
-            startTime = Date.now();
-            timerInterval = setInterval(updateTimer, 10);
-        }
+        <!-- Timing Display -->
+        <div id="timingDisplay"></div>
 
-        function updateTimer() {
-            elapsedTime = Date.now() - startTime;
-            const seconds = Math.floor(elapsedTime / 1000);
-            const milliseconds = elapsedTime % 1000;
-            timerDisplay.textContent = `Time: ${seconds}.${milliseconds.toString().padStart(3, '0')}`;
-        }
+        <!-- Word Display -->
+        <div id="wordDisplay"></div>
+    </div>
+</div>
+{% endblock %}
 
-        function stopTimer() {
-            clearInterval(timerInterval);
-            sendGameData();
-        }
-
-        function calculateAccuracy() {
-            return totalChars > 0 ? (correctChars / totalChars * 100).toFixed(2) : 0;
-        }
-
-        function checkInput() {
-            const currentWord = words[currentWordIndex];
-            const inputValue = userInput.value;
-
-            if (inputValue === currentWord) {
-                score += 10;
-                scoreDisplay.textContent = `Score: ${score}`;
-                currentWordIndex = (currentWordIndex + 1) % words.length;
-                userInput.value = '';
-                wordsTyped++;
-                correctChars += currentWord.length;
-                totalChars += currentWord.length;
-                displayWord();
-                updateRhythmBar();
-            } else if (inputValue.startsWith(currentWord)) {
-                totalChars++;
-            } else {
-                totalChars++;
-            }
-            accuracyDisplay.textContent = `Accuracy: ${calculateAccuracy()}%`;
-        }
-
-        function updateRhythmBar() {
-            rhythmBar.style.width = `${(currentWordIndex / words.length) * 100}%`;
-        }
-
-        async function sendGameData() {
-            const accuracy = calculateAccuracy();
-            const timePlayed = elapsedTime / 1000;
-            const gameData = {
-                score: score,
-                words_typed: wordsTyped,
-                accuracy: accuracy,
-                time_played: timePlayed
-            };
-
-            try {
-                const response = await fetch('/game/submit', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(gameData)
-                });
-                if (response.ok) {
-                    console.log('Game data submitted successfully!');
-                } else {
-                    console.error('Failed to submit game data.');
-                }
-            } catch (error) {
-                console.error('Error submitting game data:', error);
-            }
-        }
-
-        displayWord();
-        startTimer();
-        userInput.addEventListener('input', checkInput);
-        userInput.addEventListener('blur', stopTimer);
-    </script>
-</body>
-</html>
+{% block scripts %}
+<!-- Game Scripts -->
+<script src="{{ url_for('static', filename='js/music_controller.js') }}"></script>
+<script src="{{ url_for('static', filename='js/game_controller.js') }}"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const gameController = new GameController();
+    
+    // Get current level from the level display
+    const levelDisplay = document.getElementById('levelDisplay');
+    const currentLevel = parseInt(levelDisplay.textContent) || 1;
+    
+    // Start game with current level
+    gameController.initializeGame(currentLevel);
+    
+    // Get music info from data attribute if available
+    const gameContainer = document.getElementById('gameContainer');
+    const musicInfoStr = gameContainer.dataset.musicInfo;
+    if (musicInfoStr) {
+        const musicInfo = JSON.parse(musicInfoStr);
+        console.log('Music info:', musicInfo);
+    }
+});
+</script>
+{% endblock %}
