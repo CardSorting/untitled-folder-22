@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block title %}Home - Typing Rhythm Game{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto">
+    <h1 class="text-3xl font-bold mb-6">Welcome to the Typing Rhythm Game!</h1>
+    
+    {% if current_user.is_authenticated %}
+        <div class="bg-white rounded-lg shadow-lg p-6 mb-6">
+            <h2 class="text-2xl font-semibold mb-4">Your Stats</h2>
+            {% if stats %}
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div class="bg-blue-50 p-4 rounded-lg">
+                    <h3 class="text-lg font-medium text-blue-800">Total Games</h3>
+                    <p class="text-2xl font-bold text-blue-600">{{ stats.total_games }}</p>
+                </div>
+                <div class="bg-green-50 p-4 rounded-lg">
+                    <h3 class="text-lg font-medium text-green-800">High Score</h3>
+                    <p class="text-2xl font-bold text-green-600">{{ stats.high_score }}</p>
+                </div>
+                <div class="bg-purple-50 p-4 rounded-lg">
+                    <h3 class="text-lg font-medium text-purple-800">Average Accuracy</h3>
+                    <p class="text-2xl font-bold text-purple-600">{{ stats.avg_accuracy }}%</p>
+                </div>
+                <div class="bg-yellow-50 p-4 rounded-lg">
+                    <h3 class="text-lg font-medium text-yellow-800">Total Words</h3>
+                    <p class="text-2xl font-bold text-yellow-600">{{ stats.total_words }}</p>
+                </div>
+            </div>
+            {% else %}
+            <p class="text-gray-600">Start playing to see your stats!</p>
+            {% endif %}
+        </div>
+        
+        <div class="text-center">
+            <a href="{{ url_for('main.game') }}" class="inline-block bg-blue-600 text-white px-8 py-3 rounded-lg font-semibold hover:bg-blue-700 transition">
+                Start Playing
+            </a>
+        </div>
+    {% else %}
+        <p class="text-lg text-gray-600 mb-8">Challenge yourself with our typing game! Practice your typing skills while enjoying rhythm game mechanics.</p>
+        
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+            <div class="bg-white rounded-lg shadow-lg p-6">
+                <h2 class="text-xl font-semibold mb-4">Features</h2>
+                <ul class="list-disc list-inside text-gray-600 space-y-2">
+                    <li>Dynamic difficulty adjustment</li>
+                    <li>Real-time accuracy tracking</li>
+                    <li>Combo system for higher scores</li>
+                    <li>Progress tracking and statistics</li>
+                </ul>
+            </div>
+            <div class="bg-white rounded-lg shadow-lg p-6">
+                <h2 class="text-xl font-semibold mb-4">How to Play</h2>
+                <ul class="list-disc list-inside text-gray-600 space-y-2">
+                    <li>Create an account or login</li>
+                    <li>Start a new game session</li>
+                    <li>Type the words as they appear</li>
+                    <li>Build combos for bonus points</li>
+                </ul>
+            </div>
+        </div>
+        
+        <div class="text-center space-x-4">
+            <a href="{{ url_for('auth.login') }}" class="inline-block bg-blue-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-blue-700 transition">
+                Login
+            </a>
+            <a href="{{ url_for('auth.register') }}" class="inline-block bg-green-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-green-700 transition">
+                Register
+            </a>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}
